@@ -1,0 +1,31 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: registry-webhook-account
+  namespace: docker-registry
+---
+apiVersion: v1
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: registry-webhook-role
+  namespace: docker-registry
+rules:
+- apiGroups: ["", "extensions", "apps", "core"]
+  resources: ["pods", "deployments"]
+  verbs: ["get", "list", "update", "edit"]
+---
+apiVersion: v1
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: registry-webhook-binding
+subjects:
+- kind: ServiceAccount
+  name: registry-webhook-account
+  namespace: docker-registry
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: registry-webhook-role
