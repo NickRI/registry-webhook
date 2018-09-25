@@ -83,7 +83,7 @@ func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 func splitRepository(repository string) (string, string, error) {
 	repChunks := strings.Split(repository, "/")
 	if len(repChunks) < 2 {
-		return repChunks[0], repChunks[1], ErrBadChunksSize
+		return "", "", ErrBadChunksSize
 	}
 	return repChunks[0], repChunks[1], nil
 }
