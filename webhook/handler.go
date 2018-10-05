@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	v1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -63,21 +65,42 @@ func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 			return err
 		}
 
-		deployment, err := clientset.Apps().Deployments(namespace).Get(project, metav1.GetOptions{})
+		deployments, err := clientset.Apps().Deployments(namespace).List(metav1.ListOptions{})
 		if err != nil {
 			return err
 		}
 
-		deployment.Spec.Template.Spec.Containers[0].Image = newImage
-		log.Printf("Start updating image %s for %s", newImage, event.Target.Repository)
-
-		_, err = clientset.Apps().Deployments(namespace).Update(deployment)
-		return err
+		dep, container := findCorrectDeploymentContainer(deployments.Items, project)
+		if dep != nil {
+			container.Image = newImage
+			fmt.Println(dep.Spec.Template.Spec.InitContainers[0].Image, container.Image, newImage)
+			if _, err = clientset.Apps().Deployments(namespace).Update(dep); err != nil {
+				return err
+			}
+			log.Printf("Start updating image %s for %s", newImage, event.Target.Repository)
+		}
 	default:
 		log.Printf("Action %s is not handled now", event.Action)
 	}
 
 	return nil
+}
+
+func findCorrectDeploymentContainer(deployments []v1.Deployment, project string) (*v1.Deployment, *corev1.Container) {
+	for _, deployment := range deployments {
+		for i := 0; i < len(deployment.Spec.Template.Spec.Containers); i++ {
+			if deployment.Spec.Template.Spec.Containers[i].Name == project {
+				return &deployment, &deployment.Spec.Template.Spec.Containers[i]
+			}
+		}
+
+		for i := 0; i < len(deployment.Spec.Template.Spec.InitContainers); i++ {
+			if deployment.Spec.Template.Spec.InitContainers[i].Name == project {
+				return &deployment, &deployment.Spec.Template.Spec.InitContainers[i]
+			}
+		}
+	}
+	return nil, nil
 }
 
 func splitRepository(repository string) (string, string, error) {
