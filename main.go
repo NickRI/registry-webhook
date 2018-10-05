@@ -22,7 +22,7 @@ func main() {
 		log.Panicf("Clietnset get error: %+v", err)
 	}
 
-	http.HandleFunc("/webhook", webhook.WebHookHandlerWrapper(clientset))
+	http.HandleFunc("/webhook", webhook.HandlerWrapper(clientset))
 	log.Println("Registry-webhook service listen on :8089")
 	log.Fatal(http.ListenAndServe(":8089", nil))
 }
