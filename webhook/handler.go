@@ -9,12 +9,13 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	cliv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 )
 
-func WebHookHandlerWrapper(clientset *kubernetes.Clientset) func(http.ResponseWriter, *http.Request) {
+//HandlerWrapper wrap and executes webhooks
+func HandlerWrapper(clientset *kubernetes.Clientset) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		var hook = new(RegistyHook)
 		defer req.Body.Close()
@@ -48,6 +49,7 @@ func WebHookHandlerWrapper(clientset *kubernetes.Clientset) func(http.ResponseWr
 	}
 }
 
+//UpdateImage executes image updating for deployments
 func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 	evtURL, err := url.Parse(event.Target.URL)
 	if err != nil {
@@ -65,20 +67,14 @@ func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 			return err
 		}
 
-		deployments, err := clientset.Apps().Deployments(namespace).List(metav1.ListOptions{})
+		deploymentIface := clientset.Apps().Deployments(namespace)
+
+		deployments, err := deploymentIface.List(metav1.ListOptions{})
 		if err != nil {
 			return err
 		}
 
-		dep, container := findCorrectDeploymentContainer(deployments.Items, project)
-		if dep != nil {
-			container.Image = newImage
-			fmt.Println(dep.Spec.Template.Spec.InitContainers[0].Image, container.Image, newImage)
-			if _, err = clientset.Apps().Deployments(namespace).Update(dep); err != nil {
-				return err
-			}
-			log.Printf("Start updating image %s for %s", newImage, event.Target.Repository)
-		}
+		return findAndUpdate(deployments.Items, deploymentIface, project, newImage)
 	default:
 		log.Printf("Action %s is not handled now", event.Action)
 	}
@@ -86,21 +82,29 @@ func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 	return nil
 }
 
-func findCorrectDeploymentContainer(deployments []v1.Deployment, project string) (*v1.Deployment, *corev1.Container) {
+func findAndUpdate(deployments []v1.Deployment, deploymentIface cliv1.DeploymentInterface, project, newImage string) error {
 	for _, deployment := range deployments {
 		for i := 0; i < len(deployment.Spec.Template.Spec.Containers); i++ {
 			if deployment.Spec.Template.Spec.Containers[i].Name == project {
-				return &deployment, &deployment.Spec.Template.Spec.Containers[i]
+				deployment.Spec.Template.Spec.Containers[i].Image = newImage
+				if _, err := deploymentIface.Update(&deployment); err != nil {
+					return err
+				}
+				log.Printf("Start updating image %s for %s", newImage, project)
 			}
 		}
 
 		for i := 0; i < len(deployment.Spec.Template.Spec.InitContainers); i++ {
 			if deployment.Spec.Template.Spec.InitContainers[i].Name == project {
-				return &deployment, &deployment.Spec.Template.Spec.InitContainers[i]
+				deployment.Spec.Template.Spec.InitContainers[i].Image = newImage
+				if _, err := deploymentIface.Update(&deployment); err != nil {
+					return err
+				}
+				log.Printf("Start updating image %s for %s", newImage, project)
 			}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 func splitRepository(repository string) (string, string, error) {
