@@ -61,14 +61,14 @@ func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 	case "pull":
 		log.Printf("Seems image %s for %s is updating", newImage, event.Target.Repository)
 	case "push":
-		namespace, project, err := splitRepository(event.Target.Repository)
+		namespace, err := splitRepository(event.Target.Repository)
 		if err != nil {
 			return err
 		}
 
 		deploymentIface := clientset.Apps().Deployments(namespace)
 
-		return findAndUpdate(deploymentIface, project, newImage)
+		return findAndUpdate(deploymentIface, newImage)
 	default:
 		log.Printf("Action %s is not handled now", event.Action)
 	}
@@ -76,7 +76,8 @@ func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 	return nil
 }
 
-func findAndUpdate(deploymentIface cliv1.DeploymentInterface, project, newImage string) error {
+func findAndUpdate(deploymentIface cliv1.DeploymentInterface, newImage string) error {
+	var needUpdate bool
 	deployments, err := deploymentIface.List(metav1.ListOptions{})
 	if err != nil {
 		return err
@@ -86,20 +87,22 @@ func findAndUpdate(deploymentIface cliv1.DeploymentInterface, project, newImage 
 		for i := 0; i < len(deployment.Spec.Template.Spec.Containers); i++ {
 			if imagesBaseEqual(deployment.Spec.Template.Spec.Containers[i].Image, newImage) {
 				deployment.Spec.Template.Spec.Containers[i].Image = newImage
-				if _, err := deploymentIface.Update(&deployment); err != nil {
-					return err
-				}
-				log.Printf("Start updating image %s for %s", newImage, project)
+				log.Printf("Scheduled updating image %s for %s", newImage, deployment.Spec.Template.Spec.Containers[i].Name)
+				needUpdate = true
 			}
 		}
 
 		for i := 0; i < len(deployment.Spec.Template.Spec.InitContainers); i++ {
 			if imagesBaseEqual(deployment.Spec.Template.Spec.InitContainers[i].Image, newImage) {
 				deployment.Spec.Template.Spec.InitContainers[i].Image = newImage
-				if _, err := deploymentIface.Update(&deployment); err != nil {
-					return err
-				}
-				log.Printf("Start updating image %s for %s", newImage, project)
+				log.Printf("Scheduled updating image %s for %s", newImage, deployment.Spec.Template.Spec.InitContainers[i].Name)
+				needUpdate = true
+			}
+		}
+
+		if needUpdate {
+			if _, err := deploymentIface.Update(&deployment); err != nil {
+				return err
 			}
 		}
 	}
@@ -124,10 +127,10 @@ func imagesBaseEqual(img1, img2 string) bool {
 	return img1sl[0] == img2sl[0] && tags1[0] == tags2[0]
 }
 
-func splitRepository(repository string) (string, string, error) {
+func splitRepository(repository string) (string, error) {
 	repChunks := strings.Split(repository, "/")
 	if len(repChunks) < 2 {
-		return "", "", ErrBadChunksSize
+		return "", ErrBadChunksSize
 	}
-	return repChunks[0], repChunks[1], nil
+	return repChunks[0], nil
 }
