@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strings"
 
-	v1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	cliv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
@@ -69,12 +68,7 @@ func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 
 		deploymentIface := clientset.Apps().Deployments(namespace)
 
-		deployments, err := deploymentIface.List(metav1.ListOptions{})
-		if err != nil {
-			return err
-		}
-
-		return findAndUpdate(deployments.Items, deploymentIface, project, newImage)
+		return findAndUpdate(deploymentIface, project, newImage)
 	default:
 		log.Printf("Action %s is not handled now", event.Action)
 	}
@@ -82,10 +76,15 @@ func UpdateImage(clientset *kubernetes.Clientset, event *Event) error {
 	return nil
 }
 
-func findAndUpdate(deployments []v1.Deployment, deploymentIface cliv1.DeploymentInterface, project, newImage string) error {
-	for _, deployment := range deployments {
+func findAndUpdate(deploymentIface cliv1.DeploymentInterface, project, newImage string) error {
+	deployments, err := deploymentIface.List(metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	for _, deployment := range deployments.Items {
 		for i := 0; i < len(deployment.Spec.Template.Spec.Containers); i++ {
-			if deployment.Spec.Template.Spec.Containers[i].Name == project {
+			if imagesBaseEqual(deployment.Spec.Template.Spec.Containers[i].Image, newImage) {
 				deployment.Spec.Template.Spec.Containers[i].Image = newImage
 				if _, err := deploymentIface.Update(&deployment); err != nil {
 					return err
@@ -95,7 +94,7 @@ func findAndUpdate(deployments []v1.Deployment, deploymentIface cliv1.Deployment
 		}
 
 		for i := 0; i < len(deployment.Spec.Template.Spec.InitContainers); i++ {
-			if deployment.Spec.Template.Spec.InitContainers[i].Name == project {
+			if imagesBaseEqual(deployment.Spec.Template.Spec.InitContainers[i].Image, newImage) {
 				deployment.Spec.Template.Spec.InitContainers[i].Image = newImage
 				if _, err := deploymentIface.Update(&deployment); err != nil {
 					return err
@@ -105,6 +104,24 @@ func findAndUpdate(deployments []v1.Deployment, deploymentIface cliv1.Deployment
 		}
 	}
 	return nil
+}
+
+func imagesBaseEqual(img1, img2 string) bool {
+	img1sl := strings.Split(img1, ":")
+	if len(img1sl) < 2 {
+		return false
+	}
+
+	tags1 := strings.Split(img1sl[1], "-")
+
+	img2sl := strings.Split(img2, ":")
+	if len(img2sl) < 2 {
+		return false
+	}
+
+	tags2 := strings.Split(img2sl[1], "-")
+
+	return img1sl[0] == img2sl[0] && tags1[0] == tags2[0]
 }
 
 func splitRepository(repository string) (string, string, error) {
