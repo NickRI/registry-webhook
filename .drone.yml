@@ -4,16 +4,30 @@ name: default
 
 steps:
   - name: test
-    image: golang
+    image: golang:1.12.0
     commands:
       - go test -v -race `go list ./...`
+
   - name: publish
     image: plugins/docker
     settings:
       username:
-        from_secret: registry_username
+        from_secret: username
       password:
-        from_secret: registry_password
+        from_secret: password
       registry: registry.strsqr.cloud
       repo: registry.strsqr.cloud/registry-webhook
       tags: latest
+
+---
+kind: secret
+name: username
+get:
+  path: drone/registry
+  name: username
+---
+kind: secret
+name: password
+get:
+  path: drone/registry
+  name: password
