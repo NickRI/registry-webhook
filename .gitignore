@@ -13,3 +13,4 @@
 .DS_Store
 vendor
 kube.config
+drone_secrets.yaml
